@@ -3,8 +3,8 @@ import { supabase } from './lib/supabase';
 import CRTOverlay from './components/CRTOverlay';
 
 export default function App() {
-  const [step, setStep] = useState('LOGIN'); // LOGIN, TERMINAL, ADMIN
-  const [operator, setOperator] = useState({ name: '', id: '' });
+  const [step, setStep] = useState('LOGIN_NAME'); // LOGIN_NAME, LOGIN_ID, TERMINAL, ADMIN
+  const [operator, setOperator] = useState({ name: '', id: '', credits: 1000 });
   const [input, setInput] = useState('');
   const [history, setHistory] = useState([]);
   const [theme, setTheme] = useState('emerald');
@@ -13,7 +13,6 @@ export default function App() {
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Efecto de máquina de escribir para simular salida de texto de terminal real
   const typeText = (textList, callback) => {
     let index = 0;
     const interval = setInterval(() => {
@@ -24,14 +23,15 @@ export default function App() {
         clearInterval(interval);
         if (callback) callback();
       }
-    }, 35); // Velocidad de escritura en ms
+    }, 30);
   };
 
   useEffect(() => {
     if (step === 'TERMINAL') {
       typeText([
-        { type: 'system', text: `BIENVENIDO AL MAINFRAME, OPERADOR: ${operator.name.toUpperCase()} [ID: ${operator.id}]` },
-        { type: 'info', text: 'Escribe "help" para ver los comandos tácticos o "contracts" para misiones disponibles.' }
+        { type: 'system', text: `ACCESO AUTORIZADO. AGENTE: ${operator.name.toUpperCase()} [ID: ${operator.id}]` },
+        { type: 'info', text: `BILLETERA CIFRADA: ${operator.credits} UCREDS` },
+        { type: 'info', text: 'Escribe "help" para ver los comandos tácticos o "contracts" para misiones.' }
       ]);
     }
   }, [step]);
@@ -42,6 +42,66 @@ export default function App() {
 
   const handleScreenClick = () => {
     inputRef.current?.focus();
+  };
+
+  // Función para autenticar o registrar al operador en Supabase
+  const handleLoginProcess = async (nameInput, idInput) => {
+    try {
+      // Buscar si el agente ya existe por su agent_id
+      let { data: existingAgent, error } = await supabase
+        .from('operators')
+        .select('*')
+        .eq('agent_id', idInput)
+        .maybeSingle();
+
+      if (existingAgent) {
+        // Agente existente: Cargamos sus datos de Supabase
+        setOperator({
+          name: existingAgent.name,
+          id: existingAgent.agent_id,
+          credits: existingAgent.credits
+        });
+        setHistory(prev => [
+          ...prev, 
+          { type: 'input', text: `> ${idInput}` },
+          { type: 'system', text: `[DB] Identificación reconocida. Bienvenido de vuelta, Agente ${existingAgent.name}.` }
+        ]);
+      } else {
+        // Agente nuevo: Lo creamos en Supabase
+        const newAgentData = {
+          agent_id: idInput,
+          name: nameInput,
+          credits: 1000 // Bono inicial de recluta
+        };
+
+        const { error: insertError } = await supabase
+          .from('operators')
+          .insert([newAgentData]);
+
+        if (insertError) throw insertError;
+
+        setOperator({
+          name: nameInput,
+          id: idInput,
+          credits: 1000
+        });
+
+        setHistory(prev => [
+          ...prev, 
+          { type: 'input', text: `> ${idInput}` },
+          { type: 'system', text: `[DB] Nuevo perfil biométrico registrado. Bono de inicio asignado: 1000 UCREDS.` }
+        ]);
+      }
+
+      setStep('TERMINAL');
+    } catch (err) {
+      setHistory(prev => [
+        ...prev, 
+        { type: 'error', text: `[AUTH ERROR]: ${err.message}` }
+      ]);
+      setStep('LOGIN_NAME');
+      setOperator({ name: '', id: '', credits: 1000 });
+    }
   };
 
   const handleCommand = async (e) => {
@@ -56,64 +116,62 @@ export default function App() {
     const args = trimmedInput.split(' ');
     const cmd = args[0].toLowerCase();
 
-    // Flujo de Login inicial
-    if (step === 'LOGIN') {
-      if (!operator.name) {
-        setOperator(prev => ({ ...prev, name: trimmedInput }));
-        setHistory([...newHistory, { type: 'system', text: `OPERADOR REGISTRADO: ${trimmedInput}. INTRODUZCA CÓDIGO DE IDENTIFICACIÓN (ID):` }]);
-        return;
-      }
-      if (!operator.id) {
-        setOperator(prev => ({ ...prev, id: trimmedInput }));
-        setStep('TERMINAL');
-        return;
-      }
+    // Flujo de Login
+    if (step === 'LOGIN_NAME') {
+      setOperator(prev => ({ ...prev, name: trimmedInput }));
+      setStep('LOGIN_ID');
+      setHistory([...newHistory, { type: 'system', text: `NOMBRE TÁCTICO: ${trimmedInput}. INTRODUZCA SU CÓDIGO ID SECRETO:` }]);
+      return;
+    }
+
+    if (step === 'LOGIN_ID') {
+      await handleLoginProcess(operator.name, trimmedInput);
+      return;
     }
 
     // Modo Administrador
     if (step === 'ADMIN') {
       if (cmd === 'exit') {
         setStep('TERMINAL');
-        setHistory([...newHistory, { type: 'system', text: '[OK] Saliendo del modo Administrador del Sistema.' }]);
+        setHistory([...newHistory, { type: 'system', text: '[OK] Saliendo del panel de Administrador.' }]);
         return;
       }
       if (cmd === 'list') {
         const { data } = await supabase.from('contracts').select('*');
-        setHistory([...newHistory, { type: 'system', text: '--- BASE DE DATOS GLOBAL (ADMIN VIEW) ---' }, ...data.map(c => ({ type: 'output', text: `[ID: ${c.id}] | ${c.title} | Bounty: ${c.bounty} | Status: ${c.status}` }))]);
+        setHistory([...newHistory, { type: 'system', text: '--- GESTIÓN GLOBAL DE CONTRATOS ---' }, ...data.map(c => ({ type: 'output', text: `[ID: ${c.id}] | ${c.title} | ${c.bounty} | Status: ${c.status}` }))]);
         return;
       }
       if (cmd === 'create') {
-        // Formato: create [Titulo] | [Target] | [Bounty]
         const parts = trimmedInput.replace('create ', '').split('|').map(p => p.trim());
         if (parts.length < 3) {
-          setHistory([...newHistory, { type: 'error', text: 'Uso incorrecto. Formato: create [Titulo] | [Target] | [Bounty]' }]);
+          setHistory([...newHistory, { type: 'error', text: 'Uso: create [Titulo] | [Target] | [Bounty]' }]);
           return;
         }
         await supabase.from('contracts').insert([{ title: parts[0], target: parts[1], bounty: parts[2], status: 'PENDING' }]);
-        setHistory([...newHistory, { type: 'system', text: '✔ Contrato inyectado exitosamente en el servidor central.' }]);
+        setHistory([...newHistory, { type: 'system', text: '✔ Contrato creado en red.' }]);
         return;
       }
       if (cmd === 'delete') {
-        const idDel = args[1];
-        await supabase.from('contracts').delete().eq('id', idDel);
-        setHistory([...newHistory, { type: 'system', text: `✔ Contrato ${idDel} eliminado del sistema.` }]);
+        await supabase.from('contracts').delete().eq('id', args[1]);
+        setHistory([...newHistory, { type: 'system', text: `✔ Contrato ${args[1]} eliminado.` }]);
         return;
       }
-      setHistory([...newHistory, { type: 'error', text: 'Comando admin desconocido. Usa: list, create, delete [id], exit' }]);
+      setHistory([...newHistory, { type: 'error', text: 'Comando desconocido. Usa: list, create, delete [id], exit' }]);
       return;
     }
 
-    // Comandos de la Terminal Principal
+    // Comandos de Terminal
     switch (cmd) {
       case 'help':
         setHistory([
           ...newHistory,
-          { type: 'system', text: 'COMANDOS TÁCTICOS DISPONIBLES:' },
-          { type: 'output', text: '  contracts          - Lista contratos y misiones activas con tiempo límite' },
-          { type: 'output', text: '  accept [ID]        - Acepta y asegura un contrato bajo tu nombre' },
-          { type: 'output', text: '  hack [ID]          - Completa el contrato activo introduciendo el exploit' },
-          { type: 'output', text: '  admin              - Acceso al panel de control de contratos (SysAdmin)' },
-          { type: 'output', text: '  theme [emerald/amber] - Cambia la fósforo-optica de la CRT' },
+          { type: 'system', text: 'COMANDOS DISPONIBLES:' },
+          { type: 'output', text: '  contracts          - Lista contratos disponibles en la red' },
+          { type: 'output', text: '  accept [ID]        - Acepta un contrato bajo tu ID de agente' },
+          { type: 'output', text: '  hack [ID]          - Completa el contrato y cobra créditos' },
+          { type: 'output', text: '  profile            - Muestra tu estatus y balance de créditos' },
+          { type: 'output', text: '  admin              - Panel de control de contratos' },
+          { type: 'output', text: '  theme [amber/emerald] - Cambia el color del fósforo CRT' },
           { type: 'output', text: '  clear              - Limpia la pantalla' },
         ]);
         break;
@@ -122,10 +180,24 @@ export default function App() {
         setHistory([]);
         break;
 
+      case 'profile':
+        // Recargar créditos actualizados de Supabase
+        const { data: agData } = await supabase.from('operators').select('*').eq('agent_id', operator.id).single();
+        if (agData) setOperator(prev => ({ ...prev, credits: agData.credits }));
+        
+        setHistory([
+          ...newHistory,
+          { type: 'system', text: `=== PERFIL DE OPERADOR ===` },
+          { type: 'output', text: `Nombre: ${operator.name}` },
+          { type: 'output', text: `ID Secreto: ${operator.id}` },
+          { type: 'output', text: `Créditos Disponibles: ${agData ? agData.credits : operator.credits} UCREDS` }
+        ]);
+        break;
+
       case 'theme':
         if (args[1] === 'amber' || args[1] === 'emerald') {
           setTheme(args[1]);
-          setHistory([...newHistory, { type: 'system', text: `[OK] Color de fósforo cambiado a: ${args[1]}` }]);
+          setHistory([...newHistory, { type: 'system', text: `[OK] Tema cambiado a: ${args[1]}` }]);
         } else {
           setHistory([...newHistory, { type: 'error', text: '[ERROR] Temas válidos: theme emerald | theme amber' }]);
         }
@@ -135,8 +207,8 @@ export default function App() {
         setStep('ADMIN');
         setHistory([
           ...newHistory, 
-          { type: 'error', text: '⚠️ [SECURITY OVERRIDE] ACCESO CONCEDIDO A PANEL DE ADMINISTRACIÓN.' },
-          { type: 'system', text: 'Comandos Admin: list | create [T] | [Target] | [Bounty] | delete [ID] | exit' }
+          { type: 'error', text: '⚠️ [SECURITY OVERRIDE] PANEL SYSADMIN ACTIVADO.' },
+          { type: 'system', text: 'Comandos: list | create [T] | [Target] | [Bounty] | delete [ID] | exit' }
         ]);
         break;
 
@@ -147,17 +219,16 @@ export default function App() {
           if (error) throw error;
 
           if (!data || data.length === 0) {
-            setHistory(prev => [...prev, { type: 'warning', text: 'No hay contratos activos en este sector.' }]);
+            setHistory(prev => [...prev, { type: 'warning', text: 'No hay contratos en la red.' }]);
           } else {
-            const list = data.map(c => {
-              const timeLeft = c.expires_at ? new Date(c.expires_at).toLocaleTimeString() : 'N/A';
-              return `[ID: ${c.id.slice(0, 8)}] | Misión: ${c.title} | Objetivo: ${c.target} | Recompensa: ${c.bounty} | Estado: [${c.status}] | Expira: ${timeLeft} | Asignado: ${c.agent_name || 'LIBRE'}`;
-            });
+            const list = data.map(c => 
+              `[ID: ${c.id.slice(0, 8)}] | Misión: ${c.title} | Objetivo: ${c.target} | Recompensa: ${c.bounty} | Estado: [${c.status}] | Agente: ${c.assigned_operator_id || 'LIBRE'}`
+            );
             setHistory(prev => [
               ...prev,
-              { type: 'system', text: `=== RED DE CONTRATOS DISPONIBLES (${data.length}) ===` },
+              { type: 'system', text: `=== RED DE CONTRATOS (${data.length}) ===` },
               ...list.map(i => ({ type: 'output', text: i })),
-              { type: 'info', text: 'Usa "accept [ID_parcial]" para tomar una misión.' }
+              { type: 'info', text: 'Usa "accept [ID_parcial]" para asegurar tu misión.' }
             ]);
           }
         } catch (err) {
@@ -178,18 +249,17 @@ export default function App() {
           if (!match) {
             setHistory(prev => [...prev, { type: 'error', text: 'Contrato no encontrado.' }]);
           } else {
-            // Actualizamos en Supabase asignándolo al operador actual
             await supabase.from('contracts').update({ 
               status: 'IN_PROGRESS', 
-              agent_name: operator.name 
+              assigned_operator_id: operator.id,
+              agent_name: operator.name
             }).eq('id', match.id);
 
             setActiveMission(match);
             setHistory(prev => [
               ...prev,
-              { type: 'system', text: `>>> MISIÓN ASEGURADA: ${match.title} <<<` },
-              { type: 'output', text: `🔒 Objetivo fijado: ${match.target}. El tiempo límite ha comenzado.` },
-              { type: 'output', text: `💻 Terminal reconfigurada para infiltración. Usa "hack ${accQuery}" para ejecutar el exploit final.` }
+              { type: 'system', text: `>>> CONTRATO ASIGNADO A TI: ${match.title} <<<` },
+              { type: 'output', text: `💻 Usa "hack ${accQuery}" para ejecutar el exploit y finalizar la misión.` }
             ]);
           }
         } catch (err) {
@@ -200,7 +270,7 @@ export default function App() {
       case 'hack':
         const hackQuery = args[1];
         if (!hackQuery) {
-          setHistory(prev => [...prev, { type: 'error', text: '[ERROR] Especifica el ID para completar el hackeo.' }]);
+          setHistory(prev => [...prev, { type: 'error', text: '[ERROR] Especifica el ID del contrato a hackear.' }]);
           break;
         }
         try {
@@ -210,13 +280,24 @@ export default function App() {
           if (!match) {
             setHistory(prev => [...prev, { type: 'error', text: 'Nodo no encontrado.' }]);
           } else {
+            // Extraer valor numérico del bounty para sumarlo a los créditos del operador (ej: "50,000 UCREDS" -> 50000)
+            const bountyNum = parseInt(match.bounty.replace(/[^0-9]/g, '')) || 5000;
+            const newCredits = operator.credits + bountyNum;
+
+            // Actualizar contrato a COMPLETED
             await supabase.from('contracts').update({ status: 'COMPLETED' }).eq('id', match.id);
+
+            // Actualizar créditos del operador en Supabase
+            await supabase.from('operators').update({ credits: newCredits }).eq('agent_id', operator.id);
+
+            setOperator(prev => ({ ...prev, credits: newCredits }));
             setActiveMission(null);
+
             setHistory(prev => [
               ...prev,
-              { type: 'system', text: '⚡ [EXPLOIT COMPLETADO CON ÉXITO] ⚡' },
-              { type: 'output', text: `✔ Misión "${match.title}" cumplida por el agente ${operator.name}.` },
-              { type: 'output', text: `💰 Recompensa de ${match.bounty} transferida a tu cuenta segura.` }
+              { type: 'system', text: '⚡ [EXPLOIT COMPLETADO EXITOSAMENTE] ⚡' },
+              { type: 'output', text: `✔ Misión "${match.title}" finalizada.` },
+              { type: 'output', text: `💰 Transferencia de ${match.bounty} acreditada a tu cuenta. Saldo total: ${newCredits} UCREDS.` }
             ]);
           }
         } catch (err) {
@@ -227,7 +308,7 @@ export default function App() {
       default:
         setHistory([
           ...newHistory,
-          { type: 'error', text: `[ERROR]: Comando "${trimmedInput}" no reconocido. Escribe "help".` }
+          { type: 'error', text: `[ERROR]: Comando desconocido "${trimmedInput}".` }
         ]);
         break;
     }
@@ -244,23 +325,21 @@ export default function App() {
     >
       <CRTOverlay />
 
-      {/* Cabecera Táctica */}
       <header className="border-b border-current pb-2 mb-4 flex justify-between items-center text-xs tracking-widest opacity-80">
-        <div>OP_NAME: {operator.name ? operator.name.toUpperCase() : 'ANON'} [ID: {operator.id || '----'}]</div>
-        <div>MODE: {step} {activeMission ? `| TARGET: ${activeMission.target}` : ''}</div>
+        <div>AGENT: {operator.name ? operator.name.toUpperCase() : 'AUTH_PENDING'} [ID: {operator.id || '----'}]</div>
+        <div>CREDITS: {operator.credits} UCREDS</div>
         <div>THEME: {theme.toUpperCase()}</div>
       </header>
 
-      {/* Pantalla / Historial de Terminal */}
       <div className="flex-1 overflow-y-auto space-y-1 pr-2 scrollbar-none font-mono text-sm md:text-base">
-        {step === 'LOGIN' && !operator.name && (
+        {step === 'LOGIN_NAME' && (
           <div className="text-current font-bold animate-pulse">
-            &gt; INTRODUZCA NOMBRE DE OPERADOR:
+            &gt; ACCESO AL SISTEMA CENTRAL // INTRODUZCA SU NOMBRE TÁCTICO:
           </div>
         )}
-        {step === 'LOGIN' && operator.name && !operator.id && (
+        {step === 'LOGIN_ID' && (
           <div className="text-current font-bold animate-pulse">
-            &gt; INTRODUZCA CÓDIGO DE IDENTIFICACIÓN (ID SECRETO):
+            &gt; INTRODUZCA SU CÓDIGO DE IDENTIFICACIÓN (ID SECRETO):
           </div>
         )}
 
@@ -280,7 +359,6 @@ export default function App() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input de Comandos */}
       <form onSubmit={handleCommand} className="mt-4 flex items-center gap-2 border-t border-current pt-3 bg-gray-950/80">
         <span className="font-bold">&gt;</span>
         <input
