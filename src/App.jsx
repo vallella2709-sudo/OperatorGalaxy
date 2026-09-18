@@ -10,8 +10,8 @@ const generateAgentId = () => {
   return id;
 };
 
-// Hook personalizado para el efecto de máquina de escribir
-useTypewriter = (text, speed = 20, onComplete) => {
+// Hook de máquina de escribir corregido y seguro
+function useTypewriter(text, speed = 15, onComplete) {
   const [displayedText, setDisplayedText] = useState('');
   useEffect(() => {
     let i = 0;
@@ -29,13 +29,13 @@ useTypewriter = (text, speed = 20, onComplete) => {
     return () => clearInterval(timer);
   }, [text]);
   return displayedText;
-};
+}
 
-// Componente para renderizar líneas de historial con o sin efecto máquina de escribir
+// Componente para renderizar la línea con efecto de escritura
 function TerminalLine({ item, isLast, onLineComplete }) {
   const textToShow = useTypewriter(
     item.text, 
-    item.type === 'system' ? 15 : 5, 
+    item.type === 'system' ? 10 : 3, 
     isLast ? onLineComplete : null
   );
 
@@ -84,7 +84,7 @@ export default function App() {
 
   const handleCommand = async (e) => {
     e.preventDefault();
-    if (isTyping) return; // Evitar enviar comandos mientras la terminal "escribe"
+    if (isTyping) return;
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
 
@@ -131,8 +131,8 @@ export default function App() {
         setOperator({ name: trimmedInput, id: generatedId, credits: 1000 });
         setStep('TERMINAL');
         addLine('system', `[REGISTRO EXITOSO] BIENVENIDO, OPERADOR ${trimmedInput.toUpperCase()}`);
-        setTimeout(() => addLine('error', `⚠️ GUARDE SU ID SECRETO: [ ${generatedId} ] LO NECESITARÁ PARA ENTRAR.`), 600);
-        setTimeout(() => addLine('info', 'Escribe "contracts" para ver las misiones disponibles en la red.'), 1200);
+        setTimeout(() => addLine('error', `⚠️ GUARDE SU ID SECRETO: [ ${generatedId} ] LO NECESITARÁ PARA ENTRAR.`), 500);
+        setTimeout(() => addLine('info', 'Escribe "contracts" para ver las misiones disponibles en la red.'), 1000);
       } catch (err) {
         addLine('error', `[ERROR REGISTRO]: ${err.message}`);
       }
@@ -162,8 +162,8 @@ export default function App() {
         setOperator({ name: data.name, id: data.agent_id, credits: data.credits });
         setStep('TERMINAL');
         addLine('system', `CONEXIÓN RESTAURADA. AGENTE: ${data.name.toUpperCase()} [ID: ${data.agent_id}]`);
-        setTimeout(() => addLine('output', `Billetera: ${data.credits} UCREDS`), 500);
-        setTimeout(() => addLine('info', 'Escribe "contracts" para acceder a los contratos o "help".'), 1000);
+        setTimeout(() => addLine('output', `Billetera: ${data.credits} UCREDS`), 400);
+        setTimeout(() => addLine('info', 'Escribe "contracts" para acceder a los contratos o "help".'), 800);
       } catch (err) {
         addLine('error', `[DB ERROR]: ${err.message}`);
       }
@@ -192,11 +192,11 @@ export default function App() {
           cData.forEach((c, idx) => {
             setTimeout(() => {
               addLine('output', `[ID: ${c.id}] | ${c.title}\nBounty: ${c.bounty} | Estado: [${c.status}]`);
-            }, idx * 300);
+            }, idx * 200);
           });
           setTimeout(() => {
             addLine('info', 'Usa "accept [ID]" (ej: accept d1a84329) para hackear el objetivo.');
-          }, cData.length * 300 + 200);
+          }, cData.length * 200 + 100);
         }
         break;
 
@@ -224,20 +224,20 @@ export default function App() {
           await supabase.from('contracts').update({ status: 'IN_PROGRESS', assigned_operator_id: operator.id }).eq('id', cMatch.id);
 
           if (cMatch.title.toLowerCase().includes('ronan')) {
-            const randomCell = Math.floor(Math.random() * 400); // 20x20 = 400 nodos
+            const randomCell = Math.floor(Math.random() * 400); // 0 a 399
             setRonanTargetCell(randomCell);
             
             addLine('system', '🚨 [PROTOCOLO DE INFILTRACIÓN ACTIVO: AGENTE RONAN] 🚨');
-            setTimeout(() => addLine('system', cMatch.description || 'Sin descripción.'), 400);
-            setTimeout(() => addLine('output', '--- MATRIZ DE RASTREO TÁCTICO 20x20 (Nodos 0 a 399) ---'), 900);
-            setTimeout(() => addLine('info', 'Introduce una coordenada numérica (0 - 399) para escanear el sector:'), 1400);
+            setTimeout(() => addLine('system', cMatch.description || 'Sin descripción.'), 300);
+            setTimeout(() => addLine('output', '--- MATRIZ DE RASTREO TÁCTICO 20x20 (Nodos 0 a 399) ---'), 600);
+            setTimeout(() => addLine('info', 'Introduce una coordenada numérica (0 - 399) para escanear el sector:'), 900);
           } else {
             setHackStage(1);
             addLine('system', `⚡ [INICIANDO INFILTRACIÓN: ${cMatch.title.toUpperCase()}] ⚡`);
-            setTimeout(() => addLine('system', cMatch.description || 'Infiltración corporativa.'), 400);
-            setTimeout(() => addLine('output', '--- CONSOLA DE INTRUSIÓN DE RED ---'), 900);
-            setTimeout(() => addLine('output', 'Fase 1/3: Saltando cortafuegos corporativo...'), 1300);
-            setTimeout(() => addLine('info', '>>> Escribe el comando de bypass: OVERRIDE_FIREWALL --node-root'), 1800);
+            setTimeout(() => addLine('system', cMatch.description || 'Infiltración corporativa.'), 300);
+            setTimeout(() => addLine('output', '--- CONSOLA DE INTRUSIÓN DE RED ---'), 600);
+            setTimeout(() => addLine('output', 'Fase 1/3: Saltando cortafuegos corporativo...'), 900);
+            setTimeout(() => addLine('info', '>>> Escribe el comando de bypass: OVERRIDE_FIREWALL --node-root'), 1200);
           }
         }
         break;
@@ -269,28 +269,28 @@ export default function App() {
         setActiveContract(null);
         
         addLine('system', '🎯 [BLANCO LOCALIZADO Y ELIMINADO CON ÉXITO] 🎯');
-        setTimeout(() => addLine('output', `El agente Ronan fue interceptado en el nodo [${chosen}].`), 400);
-        setTimeout(() => addLine('output', `💰 Recompensa de ${activeContract.bounty} transferida. Saldo: ${newCreds} UCREDS.`), 900);
-        setTimeout(() => addLine('info', 'Terminal liberada. Escribe "contracts".'), 1400);
+        setTimeout(() => addLine('output', `El agente Ronan fue interceptado en el nodo [${chosen}].`), 300);
+        setTimeout(() => addLine('output', `💰 Recompensa de ${activeContract.bounty} transferida. Saldo: ${newCreds} UCREDS.`), 600);
+        setTimeout(() => addLine('info', 'Terminal liberada. Escribe "contracts".'), 900);
       } else {
         const oneHourLater = new Date(new Date().getTime() + 3600000).toISOString();
         await supabase.from('operators').update({ lock_until: oneHourLater }).eq('agent_id', operator.id);
 
         setActiveContract(null);
         addLine('error', `❌ [ERROR DE RASTREO] Nodo [${chosen}] vacío. El agente ha detectado la intrusión.`);
-        setTimeout(() => addLine('error', '⛔ [ALERTA] Terminal bloqueada por contrainteligencia durante 1 hora.'), 500);
+        setTimeout(() => addLine('error', '⛔ [ALERTA] Terminal bloqueada por contrainteligencia durante 1 hora.'), 400);
         setTimeout(() => {
           addLine('info', 'Desconectando sesión...');
           setStep('LOGIN_CHOICE');
-        }, 1000);
+        }, 800);
       }
     } else {
       if (hackStage === 1) {
         if (val === 'OVERRIDE_FIREWALL --node-root') {
           setHackStage(2);
           addLine('system', '✔ Cortafuegos corporativo neutralizado.');
-          setTimeout(() => addLine('output', 'Fase 2/3: Descargando archivos confidenciales del servidor central.'), 500);
-          setTimeout(() => addLine('info', '>>> Escribe la consulta de extracción: SELECT * FROM mainframe_data;'), 1000);
+          setTimeout(() => addLine('output', 'Fase 2/3: Descargando archivos confidenciales del servidor central.'), 400);
+          setTimeout(() => addLine('info', '>>> Escribe la consulta de extracción: SELECT * FROM mainframe_data;'), 800);
         } else {
           addLine('error', 'Acceso denegado. Escribe: OVERRIDE_FIREWALL --node-root');
         }
@@ -298,8 +298,8 @@ export default function App() {
         if (val.toLowerCase() === 'select * from mainframe_data;') {
           setHackStage(3);
           addLine('system', '✔ Volcado de datos completado con éxito en el servidor proxy.');
-          setTimeout(() => addLine('output', 'Fase 3/3: Borrando registros de actividad y rastros forenses.'), 500);
-          setTimeout(() => addLine('info', '>>> Escribe el comando de finalización: EXECUTE --purge-logs'), 1000);
+          setTimeout(() => addLine('output', 'Fase 3/3: Borrando registros de actividad y rastros forenses.'), 400);
+          setTimeout(() => addLine('info', '>>> Escribe el comando de finalización: EXECUTE --purge-logs'), 800);
         } else {
           addLine('error', 'Sintaxis SQL incorrecta. Escribe: SELECT * FROM mainframe_data;');
         }
@@ -316,9 +316,9 @@ export default function App() {
           setHackStage(0);
 
           addLine('system', '⚡ [INFILTRACIÓN COMPLETADA SIN RASTRO] ⚡');
-          setTimeout(() => addLine('output', `✔ Misión "${activeContract.title}" finalizada.`), 400);
-          setTimeout(() => addLine('output', `💰 Recompensa añadida: ${activeContract.bounty}. Saldo: ${newCreds} UCREDS.`), 900);
-          setTimeout(() => addLine('info', 'Terminal restaurada al menú principal. Escribe "contracts".'), 1400);
+          setTimeout(() => addLine('output', `✔ Misión "${activeContract.title}" finalizada.`), 300);
+          setTimeout(() => addLine('output', `💰 Recompensa añadida: ${activeContract.bounty}. Saldo: ${newCreds} UCREDS.`), 600);
+          setTimeout(() => addLine('info', 'Terminal restaurada al menú principal. Escribe "contracts".'), 900);
         } else {
           addLine('error', 'Comando de purga incorrecto. Escribe: EXECUTE --purge-logs');
         }
@@ -340,7 +340,7 @@ export default function App() {
       </header>
 
       <div className="flex-1 overflow-y-auto space-y-1 pr-2 scrollbar-none text-sm md:text-base">
-        {step === 'LOGIN_CHOICE' && history.length === 1 && (
+        {step === 'LOGIN_CHOICE' && history.length === 1 && !isTyping && (
           <div className="space-y-2">
             <div className="font-bold text-emerald-400 animate-pulse">=== OPERATOR GALAXY SECURE TERMINAL ===</div>
             <div>[1] Registrarse como nuevo Agente</div>
@@ -367,11 +367,11 @@ export default function App() {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          disabled={isTyping} // Bloquear input mientras se escribe el texto
+          disabled={isTyping}
           autoFocus
           spellCheck="false"
           autoComplete="off"
-          className="bg-transparent border-none outline-none flex-1 font-mono text-emerald-400 text-sm md:text-base tracking-wider disabled:opacity-50"
+          className="bg-transparent border-none outline-none flex-1 font-mono text-emerald-400 text-sm md:text-base tracking-wider disabled:opacity-40"
         />
         <span className="animate-blink font-bold">█</span>
       </form>
