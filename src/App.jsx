@@ -3,24 +3,43 @@ import { supabase } from './lib/supabase';
 import CRTOverlay from './components/CRTOverlay';
 
 export default function App() {
+  const [step, setStep] = useState('LOGIN'); // LOGIN, TERMINAL, ADMIN
+  const [operator, setOperator] = useState({ name: '', id: '' });
   const [input, setInput] = useState('');
-  const [history, setHistory] = useState([
-    { type: 'system', text: 'OPERATOR GALAXY // SECURE TERMINAL v4.81' },
-    { type: 'system', text: 'CONEXIÓN ESTABLECIDA CON SUPABASE MAINFRAME.' },
-    { type: 'info', text: 'Escribe "help" para ver los comandos disponibles o "contracts" para listar misiones.' },
-    { type: 'spacer', text: '' }
-  ]);
-  const [theme, setTheme] = useState('emerald'); // emerald (verde) o amber (ámbar)
+  const [history, setHistory] = useState([]);
+  const [theme, setTheme] = useState('emerald');
+  const [activeMission, setActiveMission] = useState(null);
   
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Auto-scroll al final de la terminal
+  // Efecto de máquina de escribir para simular salida de texto de terminal real
+  const typeText = (textList, callback) => {
+    let index = 0;
+    const interval = setInterval(() => {
+      if (index < textList.length) {
+        setHistory(prev => [...prev, textList[index]]);
+        index++;
+      } else {
+        clearInterval(interval);
+        if (callback) callback();
+      }
+    }, 35); // Velocidad de escritura en ms
+  };
+
+  useEffect(() => {
+    if (step === 'TERMINAL') {
+      typeText([
+        { type: 'system', text: `BIENVENIDO AL MAINFRAME, OPERADOR: ${operator.name.toUpperCase()} [ID: ${operator.id}]` },
+        { type: 'info', text: 'Escribe "help" para ver los comandos tácticos o "contracts" para misiones disponibles.' }
+      ]);
+    }
+  }, [step]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history]);
 
-  // Mantener el foco en el input al hacer clic en cualquier parte de la pantalla
   const handleScreenClick = () => {
     inputRef.current?.focus();
   };
@@ -30,7 +49,6 @@ export default function App() {
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
 
-    // Agregar comando ingresado al historial
     const newHistory = [...history, { type: 'input', text: `> ${trimmedInput}` }];
     setHistory(newHistory);
     setInput('');
@@ -38,19 +56,65 @@ export default function App() {
     const args = trimmedInput.split(' ');
     const cmd = args[0].toLowerCase();
 
+    // Flujo de Login inicial
+    if (step === 'LOGIN') {
+      if (!operator.name) {
+        setOperator(prev => ({ ...prev, name: trimmedInput }));
+        setHistory([...newHistory, { type: 'system', text: `OPERADOR REGISTRADO: ${trimmedInput}. INTRODUZCA CÓDIGO DE IDENTIFICACIÓN (ID):` }]);
+        return;
+      }
+      if (!operator.id) {
+        setOperator(prev => ({ ...prev, id: trimmedInput }));
+        setStep('TERMINAL');
+        return;
+      }
+    }
+
+    // Modo Administrador
+    if (step === 'ADMIN') {
+      if (cmd === 'exit') {
+        setStep('TERMINAL');
+        setHistory([...newHistory, { type: 'system', text: '[OK] Saliendo del modo Administrador del Sistema.' }]);
+        return;
+      }
+      if (cmd === 'list') {
+        const { data } = await supabase.from('contracts').select('*');
+        setHistory([...newHistory, { type: 'system', text: '--- BASE DE DATOS GLOBAL (ADMIN VIEW) ---' }, ...data.map(c => ({ type: 'output', text: `[ID: ${c.id}] | ${c.title} | Bounty: ${c.bounty} | Status: ${c.status}` }))]);
+        return;
+      }
+      if (cmd === 'create') {
+        // Formato: create [Titulo] | [Target] | [Bounty]
+        const parts = trimmedInput.replace('create ', '').split('|').map(p => p.trim());
+        if (parts.length < 3) {
+          setHistory([...newHistory, { type: 'error', text: 'Uso incorrecto. Formato: create [Titulo] | [Target] | [Bounty]' }]);
+          return;
+        }
+        await supabase.from('contracts').insert([{ title: parts[0], target: parts[1], bounty: parts[2], status: 'PENDING' }]);
+        setHistory([...newHistory, { type: 'system', text: '✔ Contrato inyectado exitosamente en el servidor central.' }]);
+        return;
+      }
+      if (cmd === 'delete') {
+        const idDel = args[1];
+        await supabase.from('contracts').delete().eq('id', idDel);
+        setHistory([...newHistory, { type: 'system', text: `✔ Contrato ${idDel} eliminado del sistema.` }]);
+        return;
+      }
+      setHistory([...newHistory, { type: 'error', text: 'Comando admin desconocido. Usa: list, create, delete [id], exit' }]);
+      return;
+    }
+
+    // Comandos de la Terminal Principal
     switch (cmd) {
       case 'help':
         setHistory([
           ...newHistory,
-          { type: 'system', text: 'COMANDOS DISPONIBLES:' },
-          { type: 'output', text: '  help              - Muestra esta lista de ayuda' },
-          { type: 'output', text: '  clear             - Limpia la pantalla de la terminal' },
-          { type: 'output', text: '  contracts         - Lista los contratos activos desde Supabase' },
-          { type: 'output', text: '  missions          - Alias de contracts' },
-          { type: 'output', text: '  accept [ID]       - Cambia el estado de un contrato a en curso' },
-          { type: 'output', text: '  hack [ID]         - Completa un contrato introduciendo el código de hackeo' },
-          { type: 'output', text: '  theme [emerald/amber] - Cambia el color del fósforo de la CRT' },
-          { type: 'output', text: '  magicword         - Ah ah ah, you didn\'t say the magic word...' },
+          { type: 'system', text: 'COMANDOS TÁCTICOS DISPONIBLES:' },
+          { type: 'output', text: '  contracts          - Lista contratos y misiones activas con tiempo límite' },
+          { type: 'output', text: '  accept [ID]        - Acepta y asegura un contrato bajo tu nombre' },
+          { type: 'output', text: '  hack [ID]          - Completa el contrato activo introduciendo el exploit' },
+          { type: 'output', text: '  admin              - Acceso al panel de control de contratos (SysAdmin)' },
+          { type: 'output', text: '  theme [emerald/amber] - Cambia la fósforo-optica de la CRT' },
+          { type: 'output', text: '  clear              - Limpia la pantalla' },
         ]);
         break;
 
@@ -67,33 +131,33 @@ export default function App() {
         }
         break;
 
-      case 'magicword':
+      case 'admin':
+        setStep('ADMIN');
         setHistory([
-          ...newHistory,
-          { type: 'error', text: 'ACCESS DENIED. AH AH AH! YOU DIDN’T SAY THE MAGIC WORD!' },
-          { type: 'system', text: '🦕 [SECURITY PROTOCOL TRIGGERED: Dennis Nedry memory leak]' }
+          ...newHistory, 
+          { type: 'error', text: '⚠️ [SECURITY OVERRIDE] ACCESO CONCEDIDO A PANEL DE ADMINISTRACIÓN.' },
+          { type: 'system', text: 'Comandos Admin: list | create [T] | [Target] | [Bounty] | delete [ID] | exit' }
         ]);
         break;
 
       case 'contracts':
       case 'missions':
         try {
-          setHistory([...newHistory, { type: 'system', text: 'CONSULTANDO BASE DE DATOS DE SUPABASE...' }]);
           const { data, error } = await supabase.from('contracts').select('*');
-
           if (error) throw error;
 
           if (!data || data.length === 0) {
             setHistory(prev => [...prev, { type: 'warning', text: 'No hay contratos activos en este sector.' }]);
           } else {
-            const contractList = data.map(c => 
-              `[ID: ${c.id.slice(0, 8)}...] | Misión: ${c.title} | Objetivo: ${c.target} | Recompensa: ${c.bounty} | Estado: [${c.status}]`
-            );
+            const list = data.map(c => {
+              const timeLeft = c.expires_at ? new Date(c.expires_at).toLocaleTimeString() : 'N/A';
+              return `[ID: ${c.id.slice(0, 8)}] | Misión: ${c.title} | Objetivo: ${c.target} | Recompensa: ${c.bounty} | Estado: [${c.status}] | Expira: ${timeLeft} | Asignado: ${c.agent_name || 'LIBRE'}`;
+            });
             setHistory(prev => [
-              ...prev, 
-              { type: 'system', text: `=== REGISTROS DE CONTRATOS (${data.length}) ===` },
-              ...contractList.map(item => ({ type: 'output', text: item })),
-              { type: 'info', text: 'Usa "hack [ID_parcial]" para completar una misión.' }
+              ...prev,
+              { type: 'system', text: `=== RED DE CONTRATOS DISPONIBLES (${data.length}) ===` },
+              ...list.map(i => ({ type: 'output', text: i })),
+              { type: 'info', text: 'Usa "accept [ID_parcial]" para tomar una misión.' }
             ]);
           }
         } catch (err) {
@@ -101,55 +165,74 @@ export default function App() {
         }
         break;
 
-      case 'hack':
-        const targetIdQuery = args[1];
-        if (!targetIdQuery) {
-          setHistory(prev => [...prev, { type: 'error', text: '[ERROR] Debes especificar el ID o parte del ID del contrato. Ej: hack a1b2c3' }]);
+      case 'accept':
+        const accQuery = args[1];
+        if (!accQuery) {
+          setHistory(prev => [...prev, { type: 'error', text: '[ERROR] Especifica el ID del contrato. Ej: accept 62ebde22' }]);
           break;
         }
-
         try {
-          // Buscamos contratos que coincidan parcialmente con el ID proporcionado
-          setHistory(prev => [...prev, { type: 'system', text: 'Buscando coincidencia de nodo y ejecutando exploit...' }]);
-          const { data, error } = await supabase.from('contracts').select('*');
-          
-          if (error) throw error;
-
-          const match = data.find(c => c.id.startsWith(targetIdQuery));
+          const { data } = await supabase.from('contracts').select('*');
+          const match = data.find(c => c.id.startsWith(accQuery));
 
           if (!match) {
-            setHistory(prev => [...prev, { type: 'error', text: `[ERROR] No se encontró ningún contrato con el identificador "${targetIdQuery}".` }]);
+            setHistory(prev => [...prev, { type: 'error', text: 'Contrato no encontrado.' }]);
           } else {
-            // Actualizamos en Supabase a COMPLETED
-            const { error: updateError } = await supabase
-              .from('contracts')
-              .update({ status: 'COMPLETED' })
-              .eq('id', match.id);
+            // Actualizamos en Supabase asignándolo al operador actual
+            await supabase.from('contracts').update({ 
+              status: 'IN_PROGRESS', 
+              agent_name: operator.name 
+            }).eq('id', match.id);
 
-            if (updateError) throw updateError;
-
+            setActiveMission(match);
             setHistory(prev => [
               ...prev,
-              { type: 'system', text: '>>> EXPLOIT EXITOSO. ACCESO ROOT CONCEDIDO <<<' },
-              { type: 'output', text: `✔ Contrato "${match.title}" marcado como COMPLETADO en Supabase.` },
-              { type: 'output', text: `💰 Transferencia de ${match.bounty} asegurada en billetera cifrada.` }
+              { type: 'system', text: `>>> MISIÓN ASEGURADA: ${match.title} <<<` },
+              { type: 'output', text: `🔒 Objetivo fijado: ${match.target}. El tiempo límite ha comenzado.` },
+              { type: 'output', text: `💻 Terminal reconfigurada para infiltración. Usa "hack ${accQuery}" para ejecutar el exploit final.` }
             ]);
           }
         } catch (err) {
-          setHistory(prev => [...prev, { type: 'error', text: `[EXPLOIT FAIL]: ${err.message}` }]);
+          setHistory(prev => [...prev, { type: 'error', text: `[ERROR]: ${err.message}` }]);
+        }
+        break;
+
+      case 'hack':
+        const hackQuery = args[1];
+        if (!hackQuery) {
+          setHistory(prev => [...prev, { type: 'error', text: '[ERROR] Especifica el ID para completar el hackeo.' }]);
+          break;
+        }
+        try {
+          const { data } = await supabase.from('contracts').select('*');
+          const match = data.find(c => c.id.startsWith(hackQuery));
+
+          if (!match) {
+            setHistory(prev => [...prev, { type: 'error', text: 'Nodo no encontrado.' }]);
+          } else {
+            await supabase.from('contracts').update({ status: 'COMPLETED' }).eq('id', match.id);
+            setActiveMission(null);
+            setHistory(prev => [
+              ...prev,
+              { type: 'system', text: '⚡ [EXPLOIT COMPLETADO CON ÉXITO] ⚡' },
+              { type: 'output', text: `✔ Misión "${match.title}" cumplida por el agente ${operator.name}.` },
+              { type: 'output', text: `💰 Recompensa de ${match.bounty} transferida a tu cuenta segura.` }
+            ]);
+          }
+        } catch (err) {
+          setHistory(prev => [...prev, { type: 'error', text: `[FAIL]: ${err.message}` }]);
         }
         break;
 
       default:
         setHistory([
           ...newHistory,
-          { type: 'error', text: `[ERROR]: Comando desconocido "${trimmedInput}". Escribe "help" para asistencia.` }
+          { type: 'error', text: `[ERROR]: Comando "${trimmedInput}" no reconocido. Escribe "help".` }
         ]);
         break;
     }
   };
 
-  // Clases dinámicas según el tema seleccionado
   const themeClasses = theme === 'amber' 
     ? 'text-amber-500 terminal-glow-amber border-amber-500/30' 
     : 'text-emerald-400 terminal-glow border-emerald-500/30';
@@ -161,15 +244,26 @@ export default function App() {
     >
       <CRTOverlay />
 
-      {/* Cabecera de la Terminal */}
+      {/* Cabecera Táctica */}
       <header className="border-b border-current pb-2 mb-4 flex justify-between items-center text-xs tracking-widest opacity-80">
-        <div>SYS_ID: OP-GALAXY-99 // SECURE_SOCKET</div>
+        <div>OP_NAME: {operator.name ? operator.name.toUpperCase() : 'ANON'} [ID: {operator.id || '----'}]</div>
+        <div>MODE: {step} {activeMission ? `| TARGET: ${activeMission.target}` : ''}</div>
         <div>THEME: {theme.toUpperCase()}</div>
-        <div>STATUS: ONLINE [SUPABASE LINKED]</div>
       </header>
 
-      {/* Ventana de Historial de Comandos */}
+      {/* Pantalla / Historial de Terminal */}
       <div className="flex-1 overflow-y-auto space-y-1 pr-2 scrollbar-none font-mono text-sm md:text-base">
+        {step === 'LOGIN' && !operator.name && (
+          <div className="text-current font-bold animate-pulse">
+            &gt; INTRODUZCA NOMBRE DE OPERADOR:
+          </div>
+        )}
+        {step === 'LOGIN' && operator.name && !operator.id && (
+          <div className="text-current font-bold animate-pulse">
+            &gt; INTRODUZCA CÓDIGO DE IDENTIFICACIÓN (ID SECRETO):
+          </div>
+        )}
+
         {history.map((item, index) => {
           let colorClass = 'text-current';
           if (item.type === 'error') colorClass = 'text-red-500 font-bold';
@@ -186,7 +280,7 @@ export default function App() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Línea de Entrada de Comandos */}
+      {/* Input de Comandos */}
       <form onSubmit={handleCommand} className="mt-4 flex items-center gap-2 border-t border-current pt-3 bg-gray-950/80">
         <span className="font-bold">&gt;</span>
         <input
