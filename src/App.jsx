@@ -10,20 +10,61 @@ const generateAgentId = () => {
   return id;
 };
 
+// Hook personalizado para el efecto de máquina de escribir
+useTypewriter = (text, speed = 20, onComplete) => {
+  const [displayedText, setDisplayedText] = useState('');
+  useEffect(() => {
+    let i = 0;
+    setDisplayedText('');
+    if (!text) return;
+    const timer = setInterval(() => {
+      if (i < text.length) {
+        setDisplayedText(prev => prev + text.charAt(i));
+        i++;
+      } else {
+        clearInterval(timer);
+        if (onComplete) onComplete();
+      }
+    }, speed);
+    return () => clearInterval(timer);
+  }, [text]);
+  return displayedText;
+};
+
+// Componente para renderizar líneas de historial con o sin efecto máquina de escribir
+function TerminalLine({ item, isLast, onLineComplete }) {
+  const textToShow = useTypewriter(
+    item.text, 
+    item.type === 'system' ? 15 : 5, 
+    isLast ? onLineComplete : null
+  );
+
+  let colorClass = 'text-emerald-400';
+  if (item.type === 'error') colorClass = 'text-red-500 font-bold';
+  if (item.type === 'warning') colorClass = 'text-yellow-400';
+  if (item.type === 'info') colorClass = 'opacity-70 italic';
+  if (item.type === 'system') colorClass = 'font-bold text-emerald-300';
+  if (item.type === 'input') colorClass = 'text-emerald-500 opacity-90';
+
+  return (
+    <div className={`${colorClass} whitespace-pre-wrap`}>
+      {isLast && item.type !== 'input' ? textToShow : item.text}
+    </div>
+  );
+}
+
 export default function App() {
   const [step, setStep] = useState('LOGIN_CHOICE'); 
   const [operator, setOperator] = useState({ name: '', id: '', credits: 1000 });
   const [input, setInput] = useState('');
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState([
+    { type: 'system', text: 'ESTABLECIENDO CONEXIÓN SEGURA CON EL MAINFRAME CENTRAL...\nSECURE PROTOCOL v4.0.2 INICIALIZADO.' }
+  ]);
   
-  // Estado para la misión activa actual
   const [activeContract, setActiveContract] = useState(null);
-  
-  // Estados para el Buscaminas 20x20 (Ronan)
   const [ronanTargetCell, setRonanTargetCell] = useState(null);
-
-  // Estados para el minijuego de Hackeo de Empresas (Rogue 1, Cybernet, Biotechnology)
   const [hackStage, setHackStage] = useState(0);
+  const [isTyping, setIsTyping] = useState(false);
 
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -36,35 +77,39 @@ export default function App() {
     inputRef.current?.focus();
   };
 
+  const addLine = (type, text) => {
+    setHistory(prev => [...prev, { type, text }]);
+    setIsTyping(true);
+  };
+
   const handleCommand = async (e) => {
     e.preventDefault();
+    if (isTyping) return; // Evitar enviar comandos mientras la terminal "escribe"
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
 
-    // Si estamos en modo misión activa, manejamos la lógica del minijuego correspondiente
     if (activeContract) {
-      await handleActiveMissionInput(trimmedInput);
+      addLine('input', `> ${trimmedInput}`);
       setInput('');
+      await handleActiveMissionInput(trimmedInput);
       return;
     }
 
-    const newHistory = [...history, { type: 'input', text: `> ${trimmedInput}` }];
-    setHistory(newHistory);
+    addLine('input', `> ${trimmedInput}`);
     setInput('');
 
     const args = trimmedInput.split(' ');
     const cmd = args[0].toLowerCase();
 
-    // 1. AUTENTICACIÓN
     if (step === 'LOGIN_CHOICE') {
       if (trimmedInput === '1') {
         setStep('REGISTER_NAME');
-        setHistory([...newHistory, { type: 'system', text: 'INICIANDO PROTOCOLO DE RECLUTA // INTRODUZCA SU NOMBRE TÁCTICO:' }]);
+        addLine('system', 'INICIANDO PROTOCOLO DE RECLUTA // INTRODUZCA SU NOMBRE TÁCTICO:');
       } else if (trimmedInput === '2') {
         setStep('LOGIN_INPUT');
-        setHistory([...newHistory, { type: 'system', text: 'INTRODUZCA SU CÓDIGO ID DE ACCESO (Ej: 00A1):' }]);
+        addLine('system', 'INTRODUZCA SU CÓDIGO ID DE ACCESO (Ej: 00A1):');
       } else {
-        setHistory([...newHistory, { type: 'error', text: 'Opción inválida. Escribe 1 para registrarse o 2 para ingresar.' }]);
+        addLine('error', 'Opción inválida. Escribe 1 para registrarse o 2 para ingresar.');
       }
       return;
     }
@@ -85,14 +130,11 @@ export default function App() {
 
         setOperator({ name: trimmedInput, id: generatedId, credits: 1000 });
         setStep('TERMINAL');
-        setHistory([
-          ...newHistory,
-          { type: 'system', text: `[REGISTRO EXITOSO] BIENVENIDO, OPERADOR ${trimmedInput.toUpperCase()}` },
-          { type: 'error', text: `⚠️ GUARDE SU ID SECRETO: [ ${generatedId} ] LO NECESITARÁ PARA ENTRAR.` },
-          { type: 'info', text: 'Escribe "contracts" para ver las misiones disponibles.' }
-        ]);
+        addLine('system', `[REGISTRO EXITOSO] BIENVENIDO, OPERADOR ${trimmedInput.toUpperCase()}`);
+        setTimeout(() => addLine('error', `⚠️ GUARDE SU ID SECRETO: [ ${generatedId} ] LO NECESITARÁ PARA ENTRAR.`), 600);
+        setTimeout(() => addLine('info', 'Escribe "contracts" para ver las misiones disponibles en la red.'), 1200);
       } catch (err) {
-        setHistory([...newHistory, { type: 'error', text: `[ERROR REGISTRO]: ${err.message}` }]);
+        addLine('error', `[ERROR REGISTRO]: ${err.message}`);
       }
       return;
     }
@@ -106,43 +148,31 @@ export default function App() {
           .maybeSingle();
 
         if (error || !data) {
-          setHistory([...newHistory, { type: 'error', text: '[ACCESO DENEGADO] ID no reconocido en el mainframe.' }]);
+          addLine('error', '[ACCESO DENEGADO] ID no reconocido en el mainframe.');
           setStep('LOGIN_CHOICE');
           return;
         }
 
-        // Verificar si está temporalmente bloqueado por intento fallido de Ronan
         if (data.lock_until && new Date() < new Date(data.lock_until)) {
           const minutesLeft = Math.ceil((new Date(data.lock_until) - new Date()) / 60000);
-          setHistory([...newHistory, { type: 'error', text: `⛔ [TERMINAL BLOQUEADA] Sanción de seguridad activa. Intenta en ${minutesLeft} minutos.` }]);
+          addLine('error', `⛔ [TERMINAL BLOQUEADA] Sanción activa por rastreo fallido. Intenta en ${minutesLeft} minutos.`);
           return;
         }
 
         setOperator({ name: data.name, id: data.agent_id, credits: data.credits });
         setStep('TERMINAL');
-        setHistory([
-          ...newHistory,
-          { type: 'system', text: `CONEXIÓN RESTAURADA. AGENTE: ${data.name.toUpperCase()} [ID: ${data.agent_id}]` },
-          { type: 'output', text: `Billetera: ${data.credits} UCREDS` },
-          { type: 'info', text: 'Escribe "contracts" para ver misiones o "help".' }
-        ]);
+        addLine('system', `CONEXIÓN RESTAURADA. AGENTE: ${data.name.toUpperCase()} [ID: ${data.agent_id}]`);
+        setTimeout(() => addLine('output', `Billetera: ${data.credits} UCREDS`), 500);
+        setTimeout(() => addLine('info', 'Escribe "contracts" para acceder a los contratos o "help".'), 1000);
       } catch (err) {
-        setHistory([...newHistory, { type: 'error', text: `[DB ERROR]: ${err.message}` }]);
+        addLine('error', `[DB ERROR]: ${err.message}`);
       }
       return;
     }
 
-    // 2. TERMINAL PRINCIPAL
     switch (cmd) {
       case 'help':
-        setHistory([
-          ...newHistory,
-          { type: 'system', text: 'COMANDOS DISPONIBLES:' },
-          { type: 'output', text: '  contracts   - Lista los contratos disponibles' },
-          { type: 'output', text: '  accept [ID] - Acepta un contrato y bloquea la terminal en Modo Misión' },
-          { type: 'output', text: '  profile     - Muestra tus credenciales y saldo' },
-          { type: 'output', text: '  clear       - Limpia la pantalla' },
-        ]);
+        addLine('system', 'COMANDOS DISPONIBLES:\n  contracts   - Examina la red de contratos y objetivos\n  accept [ID] - Acepta y despliega el protocolo de misión\n  profile     - Revisa credenciales y balance\n  clear       - Limpia el buffer de pantalla');
         break;
 
       case 'clear':
@@ -150,99 +180,85 @@ export default function App() {
         break;
 
       case 'profile':
-        setHistory([
-          ...newHistory,
-          { type: 'system', text: `=== PERFIL TÁCTICO ===` },
-          { type: 'output', text: `Operador: ${operator.name} [ID: ${operator.id}]` },
-          { type: 'output', text: `Créditos: ${operator.credits} UCREDS` }
-        ]);
+        addLine('system', `=== PERFIL TÁCTICO ===\nOperador: ${operator.name} [ID: ${operator.id}]\nCréditos: ${operator.credits} UCREDS`);
         break;
 
       case 'contracts':
         const { data: cData, error: cError } = await supabase.from('contracts').select('*');
         if (cError || !cData || cData.length === 0) {
-          setHistory(prev => [...prev, { type: 'warning', text: 'No hay contratos en la red o error al cargar.' }]);
+          addLine('warning', 'No hay contratos disponibles en este nodo.');
         } else {
-          const list = cData.map(c => 
-            `[ID: ${c.id}] | ${c.title} | Recompensa: ${c.bounty} | [${c.status}]`
-          );
-          setHistory(prev => [
-            ...prev,
-            { type: 'system', text: `=== RED DE CONTRATOS ===` },
-            ...list.map(i => ({ type: 'output', text: i })),
-            { type: 'info', text: 'Usa "accept [ID]" (ej: accept d1a84329) para desplegar la misión.' }
-          ]);
+          addLine('system', `=== RED DE CONTRATOS ACTIVOS (${cData.length}) ===`);
+          cData.forEach((c, idx) => {
+            setTimeout(() => {
+              addLine('output', `[ID: ${c.id}] | ${c.title}\nBounty: ${c.bounty} | Estado: [${c.status}]`);
+            }, idx * 300);
+          });
+          setTimeout(() => {
+            addLine('info', 'Usa "accept [ID]" (ej: accept d1a84329) para hackear el objetivo.');
+          }, cData.length * 300 + 200);
         }
         break;
 
       case 'accept':
-        // Limpieza de corchetes u espacios accidentales ingresados por el usuario
         const rawArg = args.slice(1).join(' ');
         const accId = rawArg.replace(/[\[\]]/g, '').trim();
 
         if (!accId) {
-          setHistory(prev => [...prev, { type: 'error', text: 'Uso: accept [ID] (Ej: accept d1a84)' }]);
+          addLine('error', 'Uso incorrecto. Formato: accept [ID]');
           break;
         }
         
         const { data: allC, error: errC } = await supabase.from('contracts').select('*');
         if (errC || !allC) {
-          setHistory(prev => [...prev, { type: 'error', text: 'Error al conectar con la red de contratos.' }]);
+          addLine('error', 'Error crítico al conectar con la base de datos.');
           break;
         }
 
         const cMatch = allC.find(c => c.id && c.id.toLowerCase().startsWith(accId.toLowerCase()));
 
         if (!cMatch) {
-          setHistory(prev => [...prev, { type: 'error', text: `Contrato con ID parcial "${accId}" inexistente.` }]);
+          addLine('error', `Contrato con identificador parcial "${accId}" no encontrado.`);
         } else {
           setActiveContract(cMatch);
           await supabase.from('contracts').update({ status: 'IN_PROGRESS', assigned_operator_id: operator.id }).eq('id', cMatch.id);
 
-          // Verificar si es la misión de Ronan (Buscaminas 20x20)
           if (cMatch.title.toLowerCase().includes('ronan')) {
-            const randomCell = Math.floor(Math.random() * 400); // 0 a 399
+            const randomCell = Math.floor(Math.random() * 400); // 20x20 = 400 nodos
             setRonanTargetCell(randomCell);
             
-            setHistory([
-              { type: 'system', text: '🚨 [MODO MISIÓN ACTIVA: DESCLASIFICACIÓN AGENTE RONAN] 🚨' },
-              { type: 'system', text: cMatch.description || 'Sin descripción detallada.' },
-              { type: 'output', text: '--- MATRIZ DE RASTREO TÁCTICO 20x20 (Coordenadas 0 a 399) ---' },
-              { type: 'info', text: 'Introduce un número del 0 al 399 para seleccionar el nodo de rastreo:' }
-            ]);
+            addLine('system', '🚨 [PROTOCOLO DE INFILTRACIÓN ACTIVO: AGENTE RONAN] 🚨');
+            setTimeout(() => addLine('system', cMatch.description || 'Sin descripción.'), 400);
+            setTimeout(() => addLine('output', '--- MATRIZ DE RASTREO TÁCTICO 20x20 (Nodos 0 a 399) ---'), 900);
+            setTimeout(() => addLine('info', 'Introduce una coordenada numérica (0 - 399) para escanear el sector:'), 1400);
           } else {
-            // Misión de empresa (Rogue 1, Cybernet, Biotechnology)
             setHackStage(1);
-            setHistory([
-              { type: 'system', text: `⚡ [MODO MISIÓN ACTIVA: ${cMatch.title.toUpperCase()}] ⚡` },
-              { type: 'system', text: cMatch.description || 'Infiltración corporativa en curso.' },
-              { type: 'output', text: '--- CONSOLA DE INFILTRACIÓN CORPORATIVA ---' },
-              { type: 'output', text: 'Fase 1/3: Inyección de carga útil principal.' },
-              { type: 'info', text: '>>> Escribe: OVERRIDE_FIREWALL --node-root' }
-            ]);
+            addLine('system', `⚡ [INICIANDO INFILTRACIÓN: ${cMatch.title.toUpperCase()}] ⚡`);
+            setTimeout(() => addLine('system', cMatch.description || 'Infiltración corporativa.'), 400);
+            setTimeout(() => addLine('output', '--- CONSOLA DE INTRUSIÓN DE RED ---'), 900);
+            setTimeout(() => addLine('output', 'Fase 1/3: Saltando cortafuegos corporativo...'), 1300);
+            setTimeout(() => addLine('info', '>>> Escribe el comando de bypass: OVERRIDE_FIREWALL --node-root'), 1800);
           }
         }
         break;
 
       default:
-        setHistory([...newHistory, { type: 'error', text: `Comando desconocido. Escribe "help".` }]);
+        addLine('error', `Comando no reconocido: "${trimmedInput}". Escribe "help".`);
         break;
     }
   };
 
-  // LÓGICA CUANDO LA TERMINAL ESTÁ EN MODO MISIÓN ACTIVA
   const handleActiveMissionInput = async (val) => {
     const isRonan = activeContract.title.toLowerCase().includes('ronan');
 
     if (isRonan) {
       const chosen = parseInt(val);
       if (isNaN(chosen) || chosen < 0 || chosen > 399) {
-        setHistory(prev => [...prev, { type: 'error', text: 'Coordenada fuera de rango. Debe ser un número entre 0 y 399.' }]);
+        addLine('error', 'Coordenada fuera de rango. Selecciona un nodo entre 0 y 399.');
         return;
       }
 
       if (chosen === ronanTargetCell) {
-        // ¡Éxito! Encontró a Ronan
         const reward = parseInt(activeContract.bounty.replace(/[^0-9]/g, '')) || 1000000;
         const newCreds = operator.credits + reward;
         
@@ -252,52 +268,40 @@ export default function App() {
         setOperator(prev => ({ ...prev, credits: newCreds }));
         setActiveContract(null);
         
-        setHistory([
-          { type: 'system', text: '🎯 [OBJETIVO ALCANZADO: AGENTE RONAN EXTERMINADO] 🎯' },
-          { type: 'output', text: `Has localizado al objetivo en el nodo [${chosen}]. Desclasificación completada.` },
-          { type: 'output', text: `💰 Recompensa de ${activeContract.bounty} acreditada. Saldo: ${newCreds} UCREDS.` },
-          { type: 'info', text: 'Terminal restaurada al menú principal. Escribe "contracts".' }
-        ]);
+        addLine('system', '🎯 [BLANCO LOCALIZADO Y ELIMINADO CON ÉXITO] 🎯');
+        setTimeout(() => addLine('output', `El agente Ronan fue interceptado en el nodo [${chosen}].`), 400);
+        setTimeout(() => addLine('output', `💰 Recompensa de ${activeContract.bounty} transferida. Saldo: ${newCreds} UCREDS.`), 900);
+        setTimeout(() => addLine('info', 'Terminal liberada. Escribe "contracts".'), 1400);
       } else {
-        // Falló: Aplicar bloqueo de 1 hora
         const oneHourLater = new Date(new Date().getTime() + 3600000).toISOString();
         await supabase.from('operators').update({ lock_until: oneHourLater }).eq('agent_id', operator.id);
 
         setActiveContract(null);
-        setHistory([
-          { type: 'error', text: `❌ [RASTREO FALLIDO] Nodo [${chosen}] vacío. El agente Ronan ha contraatacado.` },
-          { type: 'error', text: '⛔ [SANCIÓN DE RED] Terminal bloqueada por contrainteligencia durante 1 hora.' },
-          { type: 'info', text: 'La sesión se cerrará por seguridad.' }
-        ]);
-        setStep('LOGIN_CHOICE');
+        addLine('error', `❌ [ERROR DE RASTREO] Nodo [${chosen}] vacío. El agente ha detectado la intrusión.`);
+        setTimeout(() => addLine('error', '⛔ [ALERTA] Terminal bloqueada por contrainteligencia durante 1 hora.'), 500);
+        setTimeout(() => {
+          addLine('info', 'Desconectando sesión...');
+          setStep('LOGIN_CHOICE');
+        }, 1000);
       }
     } else {
-      // Lógica de Hackeo Secuencial para Empresas (Rogue 1, Cybernet, Biotechnology)
       if (hackStage === 1) {
         if (val === 'OVERRIDE_FIREWALL --node-root') {
           setHackStage(2);
-          setHistory(prev => [
-            ...prev,
-            { type: 'input', text: `> ${val}` },
-            { type: 'system', text: '✔ Firewall secundario evadido con éxito.' },
-            { type: 'output', text: 'Fase 2/3: Extracción de registros cifrados de la base de datos.' },
-            { type: 'info', text: '>>> Escribe la consulta SQL: SELECT * FROM mainframe_data;' }
-          ]);
+          addLine('system', '✔ Cortafuegos corporativo neutralizado.');
+          setTimeout(() => addLine('output', 'Fase 2/3: Descargando archivos confidenciales del servidor central.'), 500);
+          setTimeout(() => addLine('info', '>>> Escribe la consulta de extracción: SELECT * FROM mainframe_data;'), 1000);
         } else {
-          setHistory(prev => [...prev, { type: 'input', text: `> ${val}` }, { type: 'error', text: 'Comando incorrecto. Escribe: OVERRIDE_FIREWALL --node-root' }]);
+          addLine('error', 'Acceso denegado. Escribe: OVERRIDE_FIREWALL --node-root');
         }
       } else if (hackStage === 2) {
         if (val.toLowerCase() === 'select * from mainframe_data;') {
           setHackStage(3);
-          setHistory(prev => [
-            ...prev,
-            { type: 'input', text: `> ${val}` },
-            { type: 'system', text: '✔ Datos corporativos extraídos al servidor proxy.' },
-            { type: 'output', text: 'Fase 3/3: Limpieza de logs y transferencia de fondos.' },
-            { type: 'info', text: '>>> Escribe el comando final: EXECUTE --purge-logs' }
-          ]);
+          addLine('system', '✔ Volcado de datos completado con éxito en el servidor proxy.');
+          setTimeout(() => addLine('output', 'Fase 3/3: Borrando registros de actividad y rastros forenses.'), 500);
+          setTimeout(() => addLine('info', '>>> Escribe el comando de finalización: EXECUTE --purge-logs'), 1000);
         } else {
-          setHistory(prev => [...prev, { type: 'input', text: `> ${val}` }, { type: 'error', text: 'Consulta SQL incorrecta. Escribe: SELECT * FROM mainframe_data;' }]);
+          addLine('error', 'Sintaxis SQL incorrecta. Escribe: SELECT * FROM mainframe_data;');
         }
       } else if (hackStage === 3) {
         if (val === 'EXECUTE --purge-logs') {
@@ -311,14 +315,12 @@ export default function App() {
           setActiveContract(null);
           setHackStage(0);
 
-          setHistory([
-            { type: 'system', text: '⚡ [INFILTRACIÓN CORPORATIVA EXITOSA] ⚡' },
-            { type: 'output', text: `✔ Misión "${activeContract.title}" finalizada satisfactoriamente.` },
-            { type: 'output', text: `💰 Recompensa de ${activeContract.bounty} transferida. Saldo: ${newCreds} UCREDS.` },
-            { type: 'info', text: 'Terminal restaurada. Escribe "contracts".' }
-          ]);
+          addLine('system', '⚡ [INFILTRACIÓN COMPLETADA SIN RASTRO] ⚡');
+          setTimeout(() => addLine('output', `✔ Misión "${activeContract.title}" finalizada.`), 400);
+          setTimeout(() => addLine('output', `💰 Recompensa añadida: ${activeContract.bounty}. Saldo: ${newCreds} UCREDS.`), 900);
+          setTimeout(() => addLine('info', 'Terminal restaurada al menú principal. Escribe "contracts".'), 1400);
         } else {
-          setHistory(prev => [...prev, { type: 'input', text: `> ${val}` }, { type: 'error', text: 'Comando incorrecto. Escribe: EXECUTE --purge-logs' }]);
+          addLine('error', 'Comando de purga incorrecto. Escribe: EXECUTE --purge-logs');
         }
       }
     }
@@ -338,7 +340,7 @@ export default function App() {
       </header>
 
       <div className="flex-1 overflow-y-auto space-y-1 pr-2 scrollbar-none text-sm md:text-base">
-        {step === 'LOGIN_CHOICE' && (
+        {step === 'LOGIN_CHOICE' && history.length === 1 && (
           <div className="space-y-2">
             <div className="font-bold text-emerald-400 animate-pulse">=== OPERATOR GALAXY SECURE TERMINAL ===</div>
             <div>[1] Registrarse como nuevo Agente</div>
@@ -347,20 +349,14 @@ export default function App() {
           </div>
         )}
 
-        {history.map((item, index) => {
-          let colorClass = 'text-emerald-400';
-          if (item.type === 'error') colorClass = 'text-red-500 font-bold';
-          if (item.type === 'warning') colorClass = 'text-yellow-400';
-          if (item.type === 'info') colorClass = 'opacity-70 italic';
-          if (item.type === 'system') colorClass = 'font-bold opacity-90 text-emerald-300';
-          if (item.type === 'input') colorClass = 'text-emerald-500 opacity-90';
-
-          return (
-            <div key={index} className={`${colorClass} whitespace-pre-wrap`}>
-              {item.text}
-            </div>
-          );
-        })}
+        {history.map((item, index) => (
+          <TerminalLine 
+            key={index} 
+            item={item} 
+            isLast={index === history.length - 1} 
+            onLineComplete={() => setIsTyping(false)}
+          />
+        ))}
         <div ref={bottomRef} />
       </div>
 
@@ -371,10 +367,11 @@ export default function App() {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          disabled={isTyping} // Bloquear input mientras se escribe el texto
           autoFocus
           spellCheck="false"
           autoComplete="off"
-          className="bg-transparent border-none outline-none flex-1 font-mono text-emerald-400 text-sm md:text-base tracking-wider"
+          className="bg-transparent border-none outline-none flex-1 font-mono text-emerald-400 text-sm md:text-base tracking-wider disabled:opacity-50"
         />
         <span className="animate-blink font-bold">█</span>
       </form>
