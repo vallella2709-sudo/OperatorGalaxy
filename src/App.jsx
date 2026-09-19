@@ -1,380 +1,274 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
-import CRTOverlay from './components/CRTOverlay';
-
-const generateAgentId = () => {
-  const chars = '0123456789ABCDEF';
-  let id = '';
-  for (let i = 0; i < 2; i++) id += Math.floor(Math.random() * 10);
-  for (let i = 0; i < 2; i++) id += chars[Math.floor(Math.random() * chars.length)];
-  return id;
-};
-
-// Hook de máquina de escribir corregido y seguro
-function useTypewriter(text, speed = 15, onComplete) {
-  const [displayedText, setDisplayedText] = useState('');
-  useEffect(() => {
-    let i = 0;
-    setDisplayedText('');
-    if (!text) return;
-    const timer = setInterval(() => {
-      if (i < text.length) {
-        setDisplayedText(prev => prev + text.charAt(i));
-        i++;
-      } else {
-        clearInterval(timer);
-        if (onComplete) onComplete();
-      }
-    }, speed);
-    return () => clearInterval(timer);
-  }, [text]);
-  return displayedText;
-}
-
-// Componente para renderizar la línea con efecto de escritura
-function TerminalLine({ item, isLast, onLineComplete }) {
-  const textToShow = useTypewriter(
-    item.text, 
-    item.type === 'system' ? 10 : 3, 
-    isLast ? onLineComplete : null
-  );
-
-  let colorClass = 'text-emerald-400';
-  if (item.type === 'error') colorClass = 'text-red-500 font-bold';
-  if (item.type === 'warning') colorClass = 'text-yellow-400';
-  if (item.type === 'info') colorClass = 'opacity-70 italic';
-  if (item.type === 'system') colorClass = 'font-bold text-emerald-300';
-  if (item.type === 'input') colorClass = 'text-emerald-500 opacity-90';
-
-  return (
-    <div className={`${colorClass} whitespace-pre-wrap`}>
-      {isLast && item.type !== 'input' ? textToShow : item.text}
-    </div>
-  );
-}
+import BottomNav from './components/BottomNav';
+import CategoryFilter from './components/CategoryFilter';
 
 export default function App() {
-  const [step, setStep] = useState('LOGIN_CHOICE'); 
-  const [operator, setOperator] = useState({ name: '', id: '', credits: 1000 });
-  const [input, setInput] = useState('');
-  const [history, setHistory] = useState([
-    { type: 'system', text: 'ESTABLECIENDO CONEXIÓN SEGURA CON EL MAINFRAME CENTRAL...\nSECURE PROTOCOL v4.0.2 INICIALIZADO.' }
-  ]);
-  
-  const [activeContract, setActiveContract] = useState(null);
-  const [ronanTargetCell, setRonanTargetCell] = useState(null);
-  const [hackStage, setHackStage] = useState(0);
-  const [isTyping, setIsTyping] = useState(false);
+  const [view, setView] = useState('HOME'); // HOME, DETAILS, CART, PROFILE, NOTIFICATIONS
+  const [items, setItems] = useState([]);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [cart, setCart] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('Todos');
+  const [activeTab, setActiveTab] = useState('description'); // Para la vista de detalles
 
-  const bottomRef = useRef(null);
-  const inputRef = useRef(null);
+  // Perfil de usuario simulado / conectado
+  const [user, setUser] = useState({ name: 'Nexus Operative', credits: 125000, email: 'agent@multiverse.net' });
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [history]);
+    fetchItems();
+  }, []);
 
-  const handleScreenClick = () => {
-    inputRef.current?.focus();
+  const fetchItems = async () => {
+    const { data, error } = await supabase.from('items').select('*');
+    if (data) setItems(data);
   };
 
-  const addLine = (type, text) => {
-    setHistory(prev => [...prev, { type, text }]);
-    setIsTyping(true);
-  };
+  const filteredItems = selectedCategory === 'Todos' 
+    ? items 
+    : items.filter(item => item.category.toLowerCase() === selectedCategory.toLowerCase());
 
-  const handleCommand = async (e) => {
-    e.preventDefault();
-    if (isTyping) return;
-    const trimmedInput = input.trim();
-    if (!trimmedInput) return;
-
-    if (activeContract) {
-      addLine('input', `> ${trimmedInput}`);
-      setInput('');
-      await handleActiveMissionInput(trimmedInput);
-      return;
-    }
-
-    addLine('input', `> ${trimmedInput}`);
-    setInput('');
-
-    const args = trimmedInput.split(' ');
-    const cmd = args[0].toLowerCase();
-
-    if (step === 'LOGIN_CHOICE') {
-      if (trimmedInput === '1') {
-        setStep('REGISTER_NAME');
-        addLine('system', 'INICIANDO PROTOCOLO DE RECLUTA // INTRODUZCA SU NOMBRE TÁCTICO:');
-      } else if (trimmedInput === '2') {
-        setStep('LOGIN_INPUT');
-        addLine('system', 'INTRODUZCA SU CÓDIGO ID DE ACCESO (Ej: 00A1):');
-      } else {
-        addLine('error', 'Opción inválida. Escribe 1 para registrarse o 2 para ingresar.');
-      }
-      return;
-    }
-
-    if (step === 'REGISTER_NAME') {
-      if (!trimmedInput) return;
-      const generatedId = generateAgentId();
-
-      try {
-        const { error: insertError } = await supabase.from('operators').insert([{
-          agent_id: generatedId,
-          name: trimmedInput,
-          credits: 1000,
-          status: 'ACTIVE'
-        }]);
-
-        if (insertError) throw insertError;
-
-        setOperator({ name: trimmedInput, id: generatedId, credits: 1000 });
-        setStep('TERMINAL');
-        addLine('system', `[REGISTRO EXITOSO] BIENVENIDO, OPERADOR ${trimmedInput.toUpperCase()}`);
-        setTimeout(() => addLine('error', `⚠️ GUARDE SU ID SECRETO: [ ${generatedId} ] LO NECESITARÁ PARA ENTRAR.`), 500);
-        setTimeout(() => addLine('info', 'Escribe "contracts" para ver las misiones disponibles en la red.'), 1000);
-      } catch (err) {
-        addLine('error', `[ERROR REGISTRO]: ${err.message}`);
-      }
-      return;
-    }
-
-    if (step === 'LOGIN_INPUT') {
-      try {
-        const { data, error } = await supabase
-          .from('operators')
-          .select('*')
-          .eq('agent_id', trimmedInput)
-          .maybeSingle();
-
-        if (error || !data) {
-          addLine('error', '[ACCESO DENEGADO] ID no reconocido en el mainframe.');
-          setStep('LOGIN_CHOICE');
-          return;
-        }
-
-        if (data.lock_until && new Date() < new Date(data.lock_until)) {
-          const minutesLeft = Math.ceil((new Date(data.lock_until) - new Date()) / 60000);
-          addLine('error', `⛔ [TERMINAL BLOQUEADA] Sanción activa por rastreo fallido. Intenta en ${minutesLeft} minutos.`);
-          return;
-        }
-
-        setOperator({ name: data.name, id: data.agent_id, credits: data.credits });
-        setStep('TERMINAL');
-        addLine('system', `CONEXIÓN RESTAURADA. AGENTE: ${data.name.toUpperCase()} [ID: ${data.agent_id}]`);
-        setTimeout(() => addLine('output', `Billetera: ${data.credits} UCREDS`), 400);
-        setTimeout(() => addLine('info', 'Escribe "contracts" para acceder a los contratos o "help".'), 800);
-      } catch (err) {
-        addLine('error', `[DB ERROR]: ${err.message}`);
-      }
-      return;
-    }
-
-    switch (cmd) {
-      case 'help':
-        addLine('system', 'COMANDOS DISPONIBLES:\n  contracts   - Examina la red de contratos y objetivos\n  accept [ID] - Acepta y despliega el protocolo de misión\n  profile     - Revisa credenciales y balance\n  clear       - Limpia el buffer de pantalla');
-        break;
-
-      case 'clear':
-        setHistory([]);
-        break;
-
-      case 'profile':
-        addLine('system', `=== PERFIL TÁCTICO ===\nOperador: ${operator.name} [ID: ${operator.id}]\nCréditos: ${operator.credits} UCREDS`);
-        break;
-
-      case 'contracts':
-        const { data: cData, error: cError } = await supabase.from('contracts').select('*');
-        if (cError || !cData || cData.length === 0) {
-          addLine('warning', 'No hay contratos disponibles en este nodo.');
-        } else {
-          addLine('system', `=== RED DE CONTRATOS ACTIVOS (${cData.length}) ===`);
-          cData.forEach((c, idx) => {
-            setTimeout(() => {
-              addLine('output', `[ID: ${c.id}] | ${c.title}\nBounty: ${c.bounty} | Estado: [${c.status}]`);
-            }, idx * 200);
-          });
-          setTimeout(() => {
-            addLine('info', 'Usa "accept [ID]" (ej: accept d1a84329) para hackear el objetivo.');
-          }, cData.length * 200 + 100);
-        }
-        break;
-
-      case 'accept':
-        const rawArg = args.slice(1).join(' ');
-        const accId = rawArg.replace(/[\[\]]/g, '').trim();
-
-        if (!accId) {
-          addLine('error', 'Uso incorrecto. Formato: accept [ID]');
-          break;
-        }
-        
-        const { data: allC, error: errC } = await supabase.from('contracts').select('*');
-        if (errC || !allC) {
-          addLine('error', 'Error crítico al conectar con la base de datos.');
-          break;
-        }
-
-        const cMatch = allC.find(c => c.id && c.id.toLowerCase().startsWith(accId.toLowerCase()));
-
-        if (!cMatch) {
-          addLine('error', `Contrato con identificador parcial "${accId}" no encontrado.`);
-        } else {
-          setActiveContract(cMatch);
-          await supabase.from('contracts').update({ status: 'IN_PROGRESS', assigned_operator_id: operator.id }).eq('id', cMatch.id);
-
-          if (cMatch.title.toLowerCase().includes('ronan')) {
-            const randomCell = Math.floor(Math.random() * 400); // 0 a 399
-            setRonanTargetCell(randomCell);
-            
-            addLine('system', '🚨 [PROTOCOLO DE INFILTRACIÓN ACTIVO: AGENTE RONAN] 🚨');
-            setTimeout(() => addLine('system', cMatch.description || 'Sin descripción.'), 300);
-            setTimeout(() => addLine('output', '--- MATRIZ DE RASTREO TÁCTICO 20x20 (Nodos 0 a 399) ---'), 600);
-            setTimeout(() => addLine('info', 'Introduce una coordenada numérica (0 - 399) para escanear el sector:'), 900);
-          } else {
-            setHackStage(1);
-            addLine('system', `⚡ [INICIANDO INFILTRACIÓN: ${cMatch.title.toUpperCase()}] ⚡`);
-            setTimeout(() => addLine('system', cMatch.description || 'Infiltración corporativa.'), 300);
-            setTimeout(() => addLine('output', '--- CONSOLA DE INTRUSIÓN DE RED ---'), 600);
-            setTimeout(() => addLine('output', 'Fase 1/3: Saltando cortafuegos corporativo...'), 900);
-            setTimeout(() => addLine('info', '>>> Escribe el comando de bypass: OVERRIDE_FIREWALL --node-root'), 1200);
-          }
-        }
-        break;
-
-      default:
-        addLine('error', `Comando no reconocido: "${trimmedInput}". Escribe "help".`);
-        break;
-    }
-  };
-
-  const handleActiveMissionInput = async (val) => {
-    const isRonan = activeContract.title.toLowerCase().includes('ronan');
-
-    if (isRonan) {
-      const chosen = parseInt(val);
-      if (isNaN(chosen) || chosen < 0 || chosen > 399) {
-        addLine('error', 'Coordenada fuera de rango. Selecciona un nodo entre 0 y 399.');
-        return;
-      }
-
-      if (chosen === ronanTargetCell) {
-        const reward = parseInt(activeContract.bounty.replace(/[^0-9]/g, '')) || 1000000;
-        const newCreds = operator.credits + reward;
-        
-        await supabase.from('operators').update({ credits: newCreds }).eq('agent_id', operator.id);
-        await supabase.from('contracts').update({ status: 'COMPLETED' }).eq('id', activeContract.id);
-        
-        setOperator(prev => ({ ...prev, credits: newCreds }));
-        setActiveContract(null);
-        
-        addLine('system', '🎯 [BLANCO LOCALIZADO Y ELIMINADO CON ÉXITO] 🎯');
-        setTimeout(() => addLine('output', `El agente Ronan fue interceptado en el nodo [${chosen}].`), 300);
-        setTimeout(() => addLine('output', `💰 Recompensa de ${activeContract.bounty} transferida. Saldo: ${newCreds} UCREDS.`), 600);
-        setTimeout(() => addLine('info', 'Terminal liberada. Escribe "contracts".'), 900);
-      } else {
-        const oneHourLater = new Date(new Date().getTime() + 3600000).toISOString();
-        await supabase.from('operators').update({ lock_until: oneHourLater }).eq('agent_id', operator.id);
-
-        setActiveContract(null);
-        addLine('error', `❌ [ERROR DE RASTREO] Nodo [${chosen}] vacío. El agente ha detectado la intrusión.`);
-        setTimeout(() => addLine('error', '⛔ [ALERTA] Terminal bloqueada por contrainteligencia durante 1 hora.'), 400);
-        setTimeout(() => {
-          addLine('info', 'Desconectando sesión...');
-          setStep('LOGIN_CHOICE');
-        }, 800);
-      }
+  const addToCart = (item) => {
+    if (!cart.some(cartItem => cartItem.id === item.id)) {
+      setCart([...cart, item]);
+      alert(`¡${item.title} añadido a tu bolsa de compra!`);
     } else {
-      if (hackStage === 1) {
-        if (val === 'OVERRIDE_FIREWALL --node-root') {
-          setHackStage(2);
-          addLine('system', '✔ Cortafuegos corporativo neutralizado.');
-          setTimeout(() => addLine('output', 'Fase 2/3: Descargando archivos confidenciales del servidor central.'), 400);
-          setTimeout(() => addLine('info', '>>> Escribe la consulta de extracción: SELECT * FROM mainframe_data;'), 800);
-        } else {
-          addLine('error', 'Acceso denegado. Escribe: OVERRIDE_FIREWALL --node-root');
-        }
-      } else if (hackStage === 2) {
-        if (val.toLowerCase() === 'select * from mainframe_data;') {
-          setHackStage(3);
-          addLine('system', '✔ Volcado de datos completado con éxito en el servidor proxy.');
-          setTimeout(() => addLine('output', 'Fase 3/3: Borrando registros de actividad y rastros forenses.'), 400);
-          setTimeout(() => addLine('info', '>>> Escribe el comando de finalización: EXECUTE --purge-logs'), 800);
-        } else {
-          addLine('error', 'Sintaxis SQL incorrecta. Escribe: SELECT * FROM mainframe_data;');
-        }
-      } else if (hackStage === 3) {
-        if (val === 'EXECUTE --purge-logs') {
-          const reward = parseInt(activeContract.bounty.replace(/[^0-9]/g, '')) || 100000;
-          const newCreds = operator.credits + reward;
-
-          await supabase.from('operators').update({ credits: newCreds }).eq('agent_id', operator.id);
-          await supabase.from('contracts').update({ status: 'COMPLETED' }).eq('id', activeContract.id);
-
-          setOperator(prev => ({ ...prev, credits: newCreds }));
-          setActiveContract(null);
-          setHackStage(0);
-
-          addLine('system', '⚡ [INFILTRACIÓN COMPLETADA SIN RASTRO] ⚡');
-          setTimeout(() => addLine('output', `✔ Misión "${activeContract.title}" finalizada.`), 300);
-          setTimeout(() => addLine('output', `💰 Recompensa añadida: ${activeContract.bounty}. Saldo: ${newCreds} UCREDS.`), 600);
-          setTimeout(() => addLine('info', 'Terminal restaurada al menú principal. Escribe "contracts".'), 900);
-        } else {
-          addLine('error', 'Comando de purga incorrecto. Escribe: EXECUTE --purge-logs');
-        }
-      }
+      alert('Este artículo ya está en tu bolsa.');
     }
   };
 
   return (
-    <div 
-      onClick={handleScreenClick}
-      className="relative h-screen w-screen bg-gray-950 p-4 md:p-8 flex flex-col justify-between overflow-hidden select-none text-emerald-400 border border-emerald-500/30 font-mono"
-    >
-      <CRTOverlay />
+    <div className="min-h-screen bg-[#0b0f19] text-gray-100 flex justify-center pb-24 select-none">
+      {/* Contenedor principal simulando diseño móvil / app centrada */}
+      <div className="w-full max-w-md p-5 flex flex-col gap-6 relative">
 
-      <header className="border-b border-emerald-500/30 pb-2 mb-4 flex justify-between items-center text-xs tracking-widest opacity-80">
-        <div>AGENT: {operator.name ? operator.name.toUpperCase() : 'AUTH_REQUIRED'} [ID: {operator.id || '----'}]</div>
-        <div>CREDITS: {operator.credits} UCREDS</div>
-        <div>MODE: {activeContract ? 'ACTIVE_MISSION' : step}</div>
-      </header>
+        {/* VISTA HOME */}
+        {view === 'HOME' && (
+          <>
+            {/* Header superior */}
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center font-bold text-blue-400">
+                  MV
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Bienvenido de nuevo</p>
+                  <h2 className="font-bold text-base text-gray-200">{user.name}</h2>
+                </div>
+              </div>
+              <div className="relative bg-gray-900 border border-gray-800 p-2.5 rounded-xl text-blue-400 font-bold text-xs">
+                {user.credits.toLocaleString()} UCREDS
+              </div>
+            </div>
 
-      <div className="flex-1 overflow-y-auto space-y-1 pr-2 scrollbar-none text-sm md:text-base">
-        {step === 'LOGIN_CHOICE' && history.length === 1 && !isTyping && (
-          <div className="space-y-2">
-            <div className="font-bold text-emerald-400 animate-pulse">=== OPERATOR GALAXY SECURE TERMINAL ===</div>
-            <div>[1] Registrarse como nuevo Agente</div>
-            <div>[2] Iniciar sesión con ID existente</div>
-            <div className="opacity-75 pt-2">&gt; Selecciona una opción (1 o 2):</div>
+            {/* Banner Promocional (Estilo Referencia) */}
+            <div className="bg-gradient-to-r from-blue-900/60 to-indigo-950 border border-blue-500/30 rounded-2xl p-5 flex justify-between items-center relative overflow-hidden shadow-xl">
+              <div className="z-10 space-y-2 max-w-[60%]" >
+                <h3 className="font-bold text-sm text-white leading-tight">50% de descuento en tu primer artefacto cósmico.</h3>
+                <button onClick={() => setSelectedCategory('Reliquias')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-blue-600/30">
+                  Ver Ofertas
+                </button>
+              </div>
+              <div className="absolute -right-4 -bottom-4 opacity-40 text-7xl">🌌</div>
+            </div>
+
+            {/* Categorías */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-base text-gray-200">Categorías</h3>
+                <span className="text-xs text-blue-400 cursor-pointer">Ver todo</span>
+              </div>
+              <CategoryFilter selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} />
+            </div>
+
+            {/* Grid de Productos (Cards Estilo Referencia) */}
+            <div className="space-y-3">
+              <h3 className="font-bold text-base text-gray-200">Explorar Multiverso</h3>
+              <div className="grid grid-cols-2 gap-4">
+                {filteredItems.map(item => (
+                  <div 
+                    key={item.id} 
+                    className="bg-[#111827] border border-gray-800/80 rounded-2xl p-3 flex flex-col justify-between shadow-lg hover:border-gray-700 transition group"
+                  >
+                    <div>
+                      <div className="relative bg-gray-900/50 rounded-xl p-2 mb-3 h-32 flex items-center justify-center overflow-hidden">
+                        <img 
+                          src={item.image_url} 
+                          alt={item.title} 
+                          className="w-full h-full object-cover rounded-lg group-hover:scale-105 transition duration-300" 
+                        />
+                        <button className="absolute top-3 right-3 p-1.5 bg-gray-900/80 backdrop-blur rounded-full text-gray-300 hover:text-red-400 transition">
+                          🤍
+                        </button>
+                      </div>
+                      <h4 className="font-bold text-sm text-gray-200 truncate">{item.title}</h4>
+                      <p className="text-[11px] text-gray-400 truncate">{item.target}</p>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between">
+                      <span className="font-bold text-sm text-white">{item.bounty.toLocaleString()} UCREDS</span>
+                      <button 
+                        onClick={() => { setSelectedItem(item); setView('DETAILS'); }}
+                        className="p-2 bg-gray-900 hover:bg-blue-600 text-gray-300 hover:text-white rounded-xl border border-gray-800 transition"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* VISTA DETAILS (DETALLES DEL PRODUCTO) */}
+        {view === 'DETAILS' && selectedItem && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <button onClick={() => setView('HOME')} className="p-2 bg-gray-900 border border-gray-800 rounded-xl text-gray-300 hover:text-white">
+                &larr; Volver
+              </button>
+              <h3 className="font-bold text-base">Detalles del Artículo</h3>
+              <button className="p-2 bg-gray-900 border border-gray-800 rounded-xl text-red-400">🤍</button>
+            </div>
+
+            {/* Imagen Principal */}
+            <div className="bg-[#111827] border border-gray-800 rounded-3xl p-4 flex justify-center items-center h-64 shadow-xl">
+              <img src={selectedItem.image_url} alt={selectedItem.title} className="max-h-full max-w-full object-contain rounded-2xl" />
+            </div>
+
+            {/* Puntuación y Precio */}
+            <div className="flex justify-between items-center">
+              <div>
+                <span className="text-xs text-blue-400 font-semibold uppercase">{selectedItem.category}</span>
+                <h2 className="text-xl font-bold text-white mt-0.5">{selectedItem.title}</h2>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-gray-400 block">Precio</span>
+                <span className="text-xl font-bold text-blue-400">{selectedItem.bounty.toLocaleString()} $</span>
+              </div>
+            </div>
+
+            {/* Pestañas Descripción / Reseñas */}
+            <div className="space-y-3">
+              <div className="flex gap-4 border-b border-gray-800 pb-2">
+                <button 
+                  onClick={() => setActiveTab('description')} 
+                  className={`pb-1 text-sm font-bold transition ${activeTab === 'description' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400'}`}
+                >
+                  Descripción
+                </button>
+                <button 
+                  onClick={() => setActiveTab('origin')} 
+                  className={`pb-1 text-sm font-bold transition ${activeTab === 'origin' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400'}`}
+                >
+                  Origen Multiversal
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                {activeTab === 'description' ? selectedItem.description : `Este artefacto fue catalogado originalmente en el universo: ${selectedItem.target}. Manejese con extrema precaución cósmica.`}
+              </p>
+            </div>
+
+            {/* Botón Comprar / Añadir a bolsa */}
+            <div className="flex gap-3 pt-4">
+              <button 
+                onClick={() => addToCart(selectedItem)}
+                className="p-4 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-2xl text-gray-200 transition"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+              </button>
+              <button 
+                onClick={() => { addToCart(selectedItem); setView('CART'); }}
+                className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl shadow-lg shadow-blue-600/30 transition text-center"
+              >
+                Comprar Ahora
+              </button>
+            </div>
           </div>
         )}
 
-        {history.map((item, index) => (
-          <TerminalLine 
-            key={index} 
-            item={item} 
-            isLast={index === history.length - 1} 
-            onLineComplete={() => setIsTyping(false)}
-          />
-        ))}
-        <div ref={bottomRef} />
-      </div>
+        {/* VISTA CART (BOLSA / CARRITO) */}
+        {view === 'CART' && (
+          <div className="space-y-6">
+            <h2 className="text-lg font-bold">Tu Bolsa Multiversal</h2>
+            {cart.length === 0 ? (
+              <div className="text-center py-20 text-gray-500 text-sm">Tu bolsa de compra está vacía.</div>
+            ) : (
+              <div className="space-y-4">
+                {cart.map(item => (
+                  <div key={item.id} className="bg-[#111827] border border-gray-800 p-4 rounded-2xl flex items-center justify-between">
+                    <img src={item.image_url} alt={item.title} className="w-16 h-16 object-cover rounded-xl border border-gray-800" />
+                    <div className="flex-1 ml-4">
+                      <h4 className="font-bold text-sm">{item.title}</h4>
+                      <p className="text-xs text-blue-400 font-bold">{item.bounty.toLocaleString()} UCREDS</p>
+                    </div>
+                    <button 
+                      onClick={() => setCart(cart.filter(c => c.id !== item.id))}
+                      className="text-gray-500 hover:text-red-400 p-2"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <div className="pt-4 border-t border-gray-800 flex justify-between items-center font-bold">
+                  <span>Total:</span>
+                  <span className="text-blue-400 text-lg">{cart.reduce((acc, curr) => acc + curr.bounty, 0).toLocaleString()} UCREDS</span>
+                </div>
+                <button 
+                  onClick={() => { alert('¡Transacción interdimensional completada con éxito!'); setCart([]); setView('HOME'); }}
+                  className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl shadow-xl transition"
+                >
+                  Proceder al Pago
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
-      <form onSubmit={handleCommand} className="mt-4 flex items-center gap-2 border-t border-emerald-500/30 pt-3 bg-gray-950/80">
-        <span className="font-bold">&gt;</span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={isTyping}
-          autoFocus
-          spellCheck="false"
-          autoComplete="off"
-          className="bg-transparent border-none outline-none flex-1 font-mono text-emerald-400 text-sm md:text-base tracking-wider disabled:opacity-40"
-        />
-        <span className="animate-blink font-bold">█</span>
-      </form>
+        {/* VISTA NOTIFICATIONS (NEGOCIACIONES / ALERTAS) */}
+        {view === 'NOTIFICATIONS' && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-bold">Centro de Alertas</h2>
+            <div className="bg-[#111827] border border-gray-800 p-4 rounded-2xl space-y-1">
+              <span className="text-[10px] text-blue-400 font-bold">NUEVA OFERTA</span>
+              <h4 className="font-bold text-sm">El Coleccionista respondió a tu propuesta</h4>
+              <p className="text-xs text-gray-400">Hay una contraoferta disponible para el Ojo de Agamotto.</p>
+            </div>
+          </div>
+        )}
+
+        {/* VISTA PROFILE */}
+        {view === 'PROFILE' && (
+          <div className="space-y-6 text-center">
+            <h2 className="text-lg font-bold">Perfil del Operador</h2>
+            <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 p-1 flex items-center justify-center text-3xl shadow-xl">
+              🥷
+            </div>
+            <div>
+              <h3 className="font-bold text-lg text-white">{user.name}</h3>
+              <p className="text-xs text-gray-400">{user.email}</p>
+            </div>
+            <div className="bg-[#111827] border border-gray-800 rounded-2xl p-4 space-y-3 text-left">
+              <div className="flex justify-between text-xs py-2 border-b border-gray-800">
+                <span className="text-gray-400">Historial de Órdenes</span>
+                <span>3 Registros</span>
+              </div>
+              <div className="flex justify-between text-xs py-2 border-b border-gray-800">
+                <span className="text-gray-400">Dirección de Envío</span>
+                <span>Tierra-616, Sector 4</span>
+              </div>
+              <div className="flex justify-between text-xs py-2">
+                <span className="text-gray-400">Método de Pago</span>
+                <span>Créditos UCREDS</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* BARRA DE NAVEGACIÓN INFERIOR */}
+        <BottomNav currentView={view} setView={setView} cartCount={cart.length} />
+
+      </div>
     </div>
   );
 }
